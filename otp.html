@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:4px 2px;color:#141B34;background:transparent}
+p{font-size:14px;margin:6px 0;min-height:20px}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #d5d9e6;border-radius:12px;font-size:20px;letter-spacing:6px;text-align:center;margin-top:8px}
+button{width:100%;padding:12px;border-radius:12px;border:0;font-weight:700;margin-top:8px;font-size:15px}
+#ok{background:#141B34;color:#fff}#re{background:#fff;border:1px solid #d5d9e6;color:#141B34}
+#rc{display:flex;justify-content:center;margin-top:6px}
+</style></head><body>
+<p id="msg"></p><div id="rc"></div>
+<div id="cr" hidden><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr">
+<button id="ok"></button><button id="re" hidden></button></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const FIREBASE_CONFIG = { apiKey: "AIzaSyAAhXtWzYGVrxn5C4H3DS9g-A_pGMhsBcs", authDomain: "redapp-2c568.firebaseapp.com", projectId: "redapp-2c568", appId: "1:378890644020:web:630f894dab8b30b2727861" }; // from Firebase console > Project settings
+const TX = {
+  en:{c:"Tick the box, then we send a code by SMS.",s:"Code sent to ",v:"Verify",r:"Send again",w:"Wrong or expired code.",f:"Could not send the code. Try again.",m:"Too many tries. Wait a few minutes.",n:"Not set up yet."},
+  fr:{c:"Cochez la case, puis nous envoyons un code par SMS.",s:"Code envoyé au ",v:"Vérifier",r:"Renvoyer",w:"Code incorrect ou expiré.",f:"Impossible d'envoyer le code. Réessayez.",m:"Trop d'essais. Attendez quelques minutes.",n:"Pas encore configuré."},
+  es:{c:"Marca la casilla y enviaremos un código por SMS.",s:"Código enviado al ",v:"Verificar",r:"Reenviar",w:"Código incorrecto o caducado.",f:"No se pudo enviar el código. Inténtalo de nuevo.",m:"Demasiados intentos. Espera unos minutos.",n:"Aún no configurado."},
+  ar:{c:"ضع علامة في المربع ثم نرسل رمزًا عبر SMS.",s:"تم إرسال الرمز إلى ",v:"تحقق",r:"إعادة الإرسال",w:"الرمز خاطئ أو منتهي.",f:"تعذّر إرسال الرمز. حاول مرة أخرى.",m:"محاولات كثيرة. انتظر بضع دقائق.",n:"لم يتم الإعداد بعد."}
+};
+const q = new URLSearchParams(location.search), phone = q.get("phone") || "", name = (q.get("name") || "").slice(0, 24);
+const L = TX[q.get("lang")] || TX.en, $ = id => document.getElementById(id);
+const say = t => { $("msg").textContent = t; };
+const done = (ok, extra) => parent.postMessage(Object.assign({ type: "redapp-otp", ok, phone }, extra), "*");
+$("ok").textContent = L.v; $("re").textContent = L.r; say(L.c);
+let conf = null;
+if (!FIREBASE_CONFIG.apiKey || !/^\+\d{8,15}$/.test(phone)) { say(L.n); }
+else {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth = firebase.auth(), db = firebase.firestore();
+  const verifier = new firebase.auth.RecaptchaVerifier("rc", { size: "normal", callback: send, "expired-callback": () => say(L.c) });
+  verifier.render();
+  async function send() {
+    try { conf = await auth.signInWithPhoneNumber(phone, verifier); $("rc").hidden = true; $("cr").hidden = false; say(L.s + phone); $("code").focus(); }
+    catch (e) { say(e.code === "auth/too-many-requests" ? L.m : L.f); try { verifier.reset(); } catch {} $("rc").hidden = false; }
+  }
+  $("re").onclick = () => { $("cr").hidden = true; $("rc").hidden = false; try { verifier.reset(); } catch {} say(L.c); };
+  $("ok").onclick = async () => {
+    const code = $("code").value.trim(); if (!/^\d{6}$/.test(code)) { say(L.w); return; }
+    $("ok").disabled = true;
+    try {
+      const u = (await conf.confirm(code)).user;
+      await db.collection("users").doc(u.uid).set({ phone: u.phoneNumber, name, verifiedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      done(true, { phone: u.phoneNumber, uid: u.uid }); await auth.signOut();
+    } catch (e) { $("ok").disabled = false; $("re").hidden = false; say(e.code === "auth/too-many-requests" ? L.m : L.w); }
+  };
+}
+</script></body></html>
